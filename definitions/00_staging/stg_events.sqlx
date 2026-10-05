@@ -72,8 +72,8 @@ SELECT * EXCEPT(rn) FROM (
     ${ga4.param('session_engaged')}                                      AS session_engaged,
     ${ga4.param('engagement_time_msec','int')}                           AS engagement_msec,
 
-    -- GA4 schreibt `value` je nach Datentyp in int/float/double.
-    -- Nur double abzufragen verliert alle ganzzahligen Betraege.
+    -- GA4 writes `value` to int/float/double depending on its type.
+    -- Reading only double drops every integer amount.
     ${ga4.paramNum('value')}                                             AS event_value,
     items,
 
@@ -81,7 +81,7 @@ SELECT * EXCEPT(rn) FROM (
     device.operating_system                                              AS os,
     geo.country                                                          AS country,
 
-    -- Bot-Heuristik: Rechenzentrums-Signatur (kein Land + Linux + Desktop)
+    -- Bot heuristic: data-center signature (no country + Linux + desktop)
     ((geo.country IS NULL OR geo.country = '')
       AND device.operating_system = 'Linux'
       AND device.category = 'desktop')                                   AS is_suspected_bot,

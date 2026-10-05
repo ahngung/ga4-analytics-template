@@ -9,13 +9,13 @@ js { const ga4 = require("includes/ga4.js"); }
 
 WITH s AS (
   SELECT COUNT(*) sessions, COUNT(DISTINCT identity_key) users,
-         COUNTIF(src_missing) ohne_quelle,
+         COUNTIF(src_missing) no_source,
          COUNTIF(channel_group='Direct') direct
   FROM ${ref("fct_touchpoints")}
   WHERE touch_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
 ),
 b AS (
-  SELECT COUNT(DISTINCT session_key) roh_sessions,
+  SELECT COUNT(DISTINCT session_key) raw_sessions,
          COUNT(DISTINCT IF(is_suspected_bot, session_key, NULL)) bot_sessions
   FROM ${ref("events")}
   WHERE event_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
@@ -30,21 +30,21 @@ p AS (
   WHERE conversion_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
     AND conv_class = 'macro'
 )
-SELECT ${ga4.TODAY} AS stand,
+SELECT ${ga4.TODAY} AS as_of,
   s.sessions, s.users, p.conversions,
-  b.roh_sessions,
-  ROUND(SAFE_DIVIDE(b.bot_sessions, b.roh_sessions),3)  AS bot_anteil_roh,
-  ROUND(SAFE_DIVIDE(s.sessions, s.users),2)             AS sessions_pro_user,
-  ROUND(SAFE_DIVIDE(s.direct, s.sessions),3)            AS direct_anteil,
-  ROUND(SAFE_DIVIDE(s.ohne_quelle, s.sessions),3)       AS quelle_fehlt_anteil,
+  b.raw_sessions,
+  ROUND(SAFE_DIVIDE(b.bot_sessions, b.raw_sessions),3)  AS bot_share_raw,
+  ROUND(SAFE_DIVIDE(s.sessions, s.users),2)             AS sessions_per_user,
+  ROUND(SAFE_DIVIDE(s.direct, s.sessions),3)            AS direct_share,
+  ROUND(SAFE_DIVIDE(s.no_source, s.sessions),3)         AS source_missing_share,
   ROUND(p.avg_tp,2)                                     AS avg_touchpoints,
   p.median_tp                                           AS median_touchpoints,
-  ROUND(p.single_rate,3)                                AS single_touch_anteil,
-  ROUND(p.avg_days,1)                                   AS avg_tage_bis_conversion,
+  ROUND(p.single_rate,3)                                AS single_touch_share,
+  ROUND(p.avg_days,1)                                   AS avg_days_to_conversion,
   CASE
-    WHEN p.conversions < 50   THEN 'ROT — zu wenig Conversions für belastbare Aussagen'
-    WHEN p.single_rate > 0.85 THEN 'ROT — fast nur Single-Touch, Modellvergleich ohne Aussage'
-    WHEN p.single_rate > 0.60 THEN 'GELB — Multi-Touch nur eingeschränkt belastbar'
-    ELSE 'GRUEN'
-  END                                                   AS attribution_eignung
+    WHEN p.conversions < 50   THEN 'RED — too few conversions for reliable conclusions'
+    WHEN p.single_rate > 0.85 THEN 'RED — almost only single-touch, model comparison is meaningless'
+    WHEN p.single_rate > 0.60 THEN 'YELLOW — multi-touch only partly reliable'
+    ELSE 'GREEN'
+  END                                                   AS attribution_readiness
 FROM s, b, p

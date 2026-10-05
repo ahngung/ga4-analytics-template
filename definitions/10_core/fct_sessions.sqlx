@@ -11,10 +11,10 @@ js { const ga4 = require("includes/ga4.js"); }
 SELECT
   session_key,
 
-  -- Deterministische Session-Identitaet: loggt sich ein Nutzer mitten in der
-  -- Session ein, traegt dieselbe Session zwei identity_key-Werte. ANY_VALUE
-  -- greift davon willkuerlich einen — bei jedem Lauf potenziell einen anderen.
-  -- Wir bevorzugen stabil die eingeloggte Identitaet.
+  -- Deterministic session identity: if a user logs in mid-session, the same
+  -- session carries two identity_key values. ANY_VALUE picks one arbitrarily,
+  -- potentially a different one on every run. We consistently prefer the
+  -- logged-in identity.
   COALESCE(
     MAX(IF(identity_key != user_pseudo_id, identity_key, NULL)),
     ANY_VALUE(user_pseudo_id))                             AS identity_key,
@@ -40,5 +40,5 @@ GROUP BY session_key
 HAVING NOT (
   IFNULL(LOGICAL_OR(is_suspected_bot), FALSE)
   AND COUNTIF(event_name='click') = 0
-  AND COUNTIF(event_name IN (${ga4.CONV}, ${ga4.MICRO})) = 0   -- Conversion schuetzt immer
+  AND COUNTIF(event_name IN (${ga4.CONV}, ${ga4.MICRO})) = 0   -- a conversion always keeps the session
 )

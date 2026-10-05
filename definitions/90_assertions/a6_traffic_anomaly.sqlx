@@ -7,7 +7,7 @@ WITH d AS (
   SELECT session_date, COUNT(*) sessions
   FROM ${ref("fct_sessions")}
   WHERE session_date >= DATE_SUB(${ga4.TODAY}, INTERVAL 60 DAY)
-    AND session_date <  ${ga4.TODAY}   -- laufenden Tag ausschliessen
+    AND session_date <  ${ga4.TODAY}   -- exclude the current day
   GROUP BY 1
 ),
 m AS (SELECT session_date, sessions,

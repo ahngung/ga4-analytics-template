@@ -2,9 +2,9 @@ const v = dataform.projectConfig.vars;
 
 const bool = (x) => String(x).toLowerCase() === "true";
 
-// Feature-Flags des Templates. Aktuell steuert nur `ecommerce` real etwas
-// (ueber die disabled-Klauseln der 27_ecommerce-Modelle); die uebrigen Flags
-// sind die vorgesehene Erweiterungsflaeche fuer weitere Mandanten.
+// Template feature flags. Only `ecommerce` has a real effect today
+// (via the disabled clauses of the 27_ecommerce models); the other flags
+// are the intended extension points for other site types.
 const F = {
   ecommerce: bool(v.has_ecommerce),
   auth:      bool(v.has_auth),
@@ -13,16 +13,16 @@ const F = {
   model:     v.business_model || "b2b_lead"
 };
 
-// Listen aus Vars
+// Lists from vars
 const split = (s) => (s || "").split(",").map(x => x.trim()).filter(Boolean);
 const MS    = split(v.milestone_events);
 const safe  = (s) => s.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
 
-// Baustein nur ausgeben, wenn Flag gesetzt (fuer kuenftige Feature-Gates).
+// Emit a SQL fragment only when the flag is set (for future feature gates).
 const iff = (flag, sql, fallback = "") => flag ? sql : fallback;
 
-// Liste von SQL-Fragmenten zu einer Spaltenliste verbinden.
-// Leere Fragmente fliegen raus — verhindert ", ," bei leeren Event-Listen.
+// Join SQL fragments into a column list.
+// Empty fragments are dropped, which prevents ", ," for empty event lists.
 const cols = (parts) => parts.filter(s => s && String(s).trim()).join(",\n  ");
 
 const ECOM_FUNNEL = split(v.ecom_funnel_steps);

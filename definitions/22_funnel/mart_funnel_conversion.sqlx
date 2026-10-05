@@ -15,10 +15,9 @@ WITH hits AS (
   JOIN ${ref("fct_sessions")} s USING (session_key)
   GROUP BY 1,2,3,4
 ),
--- Kumulativ: Schritt N gilt nur als erreicht, wenn auch alle vorherigen
--- Schritte in der Session vorkamen. Das alte MAX(CASE...) hat den hoechsten
--- erreichten Schritt genommen und damit Sessions mitgezaehlt, die
--- Zwischenschritte uebersprungen haben.
+-- Cumulative: step N only counts as reached if all previous steps also
+-- occurred in the session. The old MAX(CASE...) took the highest step
+-- reached and so counted sessions that skipped intermediate steps.
 seq AS (
   SELECT session_date, channel_group, device_category,
     ${fn.STEPS.map((x,i) =>

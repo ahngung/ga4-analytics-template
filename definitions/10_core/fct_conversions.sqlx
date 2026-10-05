@@ -11,9 +11,9 @@ js { const ga4 = require("includes/ga4.js"); }
 SELECT
   e.event_id                                 AS conversion_id,
 
-  -- Identitaet der Session, nicht des einzelnen Events. Sonst kann eine
-  -- Conversion eine andere identity_key tragen als ihre eigene Session und
-  -- faellt in bridge_attribution aus dem Join.
+  -- Use the session's identity, not the single event's. Otherwise a
+  -- conversion can carry a different identity_key than its own session and
+  -- drops out of the join in bridge_attribution.
   COALESCE(s.identity_key, e.identity_key)   AS identity_key,
 
   e.session_key,
@@ -23,7 +23,7 @@ SELECT
   CASE WHEN e.event_name IN (${ga4.CONV})  THEN 'macro'
        WHEN e.event_name IN (${ga4.MICRO}) THEN 'micro' END AS conv_class,
   IFNULL(e.event_value, 1.0)                 AS conv_value,
-  -- Macht sichtbar, wann conv_value nur der Default ist statt ein echter Wert.
+  -- Flags when conv_value is only the default rather than a real value.
   e.event_value IS NULL                      AS conv_value_imputed
 FROM ${ref("events")} e
 LEFT JOIN ${ref("fct_sessions")} s

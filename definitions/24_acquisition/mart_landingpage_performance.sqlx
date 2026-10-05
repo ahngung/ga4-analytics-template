@@ -6,8 +6,8 @@ config {
   bigquery: { partitionBy: "date", clusterBy: ["channel_group"] }
 }
 
--- Conversions vorab pro Session verdichten:
--- verhindert Fan-out des LEFT JOIN (1 Session x N Conversions = N Zeilen).
+-- Pre-aggregate conversions per session:
+-- prevents LEFT JOIN fan-out (1 session x N conversions = N rows).
 WITH conv AS (
   SELECT
     session_key,
@@ -26,7 +26,7 @@ SELECT
   s.channel_group,
   s.device_category,
 
-  -- Ab hier gilt: genau eine Zeile pro Session -> COUNT(*) und AVG() korrekt.
+  -- From here on: exactly one row per session, so COUNT(*) and AVG() are correct.
   COUNT(*)                                               AS sessions,
   COUNT(DISTINCT s.identity_key)                         AS users,
   COUNTIF(s.is_engaged)                                  AS engaged_sessions,
@@ -39,10 +39,10 @@ SELECT
   SUM(IFNULL(c.micro_conv, 0))                           AS micro_conversions,
   COUNTIF(IFNULL(c.has_macro_conv, FALSE))               AS converting_sessions,
 
-  -- Anteil Sessions mit mindestens einer Macro-Conversion (immer <= 1).
+  -- Share of sessions with at least one macro conversion (always <= 1).
   ROUND(SAFE_DIVIDE(COUNTIF(IFNULL(c.has_macro_conv, FALSE)),
                     COUNT(*)), 4)                        AS cvr,
-  -- Conversions pro Session: kann > 1 sein bei Mehrfach-Conversions.
+  -- Conversions per session: can be > 1 with repeat conversions.
   ROUND(SAFE_DIVIDE(SUM(IFNULL(c.macro_conv, 0)),
                     COUNT(*)), 4)                        AS conv_per_session
 

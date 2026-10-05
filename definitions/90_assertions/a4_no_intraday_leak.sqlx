@@ -3,7 +3,7 @@ config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
 
 js { const ga4 = require("includes/ga4.js"); }
 
-SELECT event_date, COUNT(DISTINCT is_intraday) modi
+SELECT event_date, COUNT(DISTINCT is_intraday) modes
 FROM ${ref("events")}
 WHERE event_date < ${ga4.TODAY}
-GROUP BY 1 HAVING modi > 1
+GROUP BY 1 HAVING modes > 1
