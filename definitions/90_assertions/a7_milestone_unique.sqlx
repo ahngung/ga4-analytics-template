@@ -1,0 +1,11 @@
+config {
+  type: "assertion",
+  schema: dataform.projectConfig.vars.ds_prefix + "qa",
+  name: "a7_milestone_unique",
+  tags: ["lifecycle", "daily"]
+}
+
+SELECT identity_key
+FROM ${ref("fct_user_milestones")}
+GROUP BY 1
+HAVING COUNT(*) > 1

@@ -1,0 +1,21 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "engagement_daily", tags: ["behaviour","daily"],
+  bigquery: { partitionBy: "date", clusterBy: ["channel_group"] }
+}
+
+SELECT
+  session_date AS date, channel_group, device_category, country,
+  COUNT(*)                                              AS sessions,
+  COUNT(DISTINCT identity_key)                          AS users,
+  COUNTIF(is_engaged)                                   AS engaged_sessions,
+  ROUND(SAFE_DIVIDE(COUNTIF(is_engaged), COUNT(*)),3)   AS engagement_rate,
+  ROUND(SAFE_DIVIDE(COUNTIF(is_bounce),  COUNT(*)),3)   AS bounce_rate,
+  ROUND(AVG(duration_sec),1)                            AS avg_duration_sec,
+  ROUND(AVG(engagement_sec),1)                          AS avg_engagement_sec,
+  ROUND(AVG(pageviews),2)                               AS avg_pageviews,
+  ROUND(AVG(unique_pages),2)                            AS avg_unique_pages,
+  ROUND(AVG(max_scroll),1)                              AS avg_max_scroll
+FROM ${ref("fct_sessions")}
+GROUP BY 1,2,3,4

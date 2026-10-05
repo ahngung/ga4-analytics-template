@@ -1,0 +1,30 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "product_performance",
+  tags: ["ecommerce", "daily"],
+  disabled: String(dataform.projectConfig.vars.has_ecommerce).toLowerCase() !== "true",
+  bigquery: { partitionBy: "date" }
+}
+
+js {
+  const fx = require("includes/features.js");
+  const { ECOM_ITEMS, ECOM_BUY, safe, sqlList } = fx;
+}
+
+SELECT
+  event_date AS date,
+  item.item_id, item.item_name, item.item_category, item.item_brand,
+
+  ${ECOM_ITEMS.map(x =>
+    `COUNTIF(event_name='${x}') AS ev_${safe(x)}`).join(",\n  ")},
+
+  SUM(IF(event_name='${ECOM_BUY}', IFNULL(item.quantity,0), 0))          AS units_sold,
+  ROUND(SUM(IF(event_name='${ECOM_BUY}', IFNULL(item.item_revenue,0), 0)),2) AS revenue,
+  ROUND(SAFE_DIVIDE(
+    SUM(IF(event_name='${ECOM_BUY}', IFNULL(item.item_revenue,0), 0)),
+    NULLIF(SUM(IF(event_name='${ECOM_BUY}', IFNULL(item.quantity,0), 0)),0)),2) AS avg_price
+FROM ${ref("events")}, UNNEST(items) AS item
+WHERE event_name IN (${sqlList(ECOM_ITEMS)})
+   OR event_name = '${ECOM_BUY}'
+GROUP BY 1,2,3,4,5

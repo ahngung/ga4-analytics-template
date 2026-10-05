@@ -1,0 +1,99 @@
+config {
+  type: "incremental",
+  schema: dataform.projectConfig.vars.ds_prefix + "stg",
+  name: "events",
+  uniqueKey: ["event_id"],
+  tags: ["core", "daily"],
+  bigquery: {
+    partitionBy: "event_date",
+    clusterBy: ["event_name", "session_key"],
+    updatePartitionFilter:
+      "event_date >= DATE_SUB(CURRENT_DATE('" + dataform.projectConfig.vars.timezone +
+      "'), INTERVAL " + dataform.projectConfig.vars.reprocess_days + " DAY)"
+  }
+}
+
+js { const ga4 = require("includes/ga4.js"); }
+
+pre_operations {
+  DECLARE start_suffix STRING DEFAULT FORMAT_DATE('%Y%m%d',
+    DATE_SUB(CURRENT_DATE('${ga4.v.timezone}'), INTERVAL ${ga4.v.reprocess_days} DAY));
+  ---
+  ${when(!incremental(), `SET start_suffix = '${ga4.HISTORY_START}';`)}
+}
+
+WITH final_shards AS (
+  SELECT *, FALSE AS is_intraday
+  FROM ${ga4.T_EVENTS}
+  WHERE ${ga4.SUFFIX}
+    AND _TABLE_SUFFIX >= start_suffix
+),
+max_final AS (
+  SELECT IFNULL(MAX(_TABLE_SUFFIX), '00000000') AS s
+  FROM ${ga4.T_EVENTS}
+  WHERE ${ga4.SUFFIX} AND _TABLE_SUFFIX >= start_suffix
+),
+intraday AS (
+  SELECT *, TRUE AS is_intraday
+  FROM ${ga4.T_INTRADAY}
+  WHERE _TABLE_SUFFIX > (SELECT s FROM max_final)
+),
+src AS (
+  SELECT * FROM final_shards
+  UNION ALL
+  SELECT * FROM intraday
+)
+
+SELECT * EXCEPT(rn) FROM (
+  SELECT
+    FARM_FINGERPRINT(CONCAT(
+      CAST(event_timestamp AS STRING), user_pseudo_id, event_name,
+      CAST(IFNULL(${ga4.param('ga_session_id','int')}, 0) AS STRING)))   AS event_id,
+
+    PARSE_DATE('%Y%m%d', event_date)                                     AS event_date,
+    TIMESTAMP_MICROS(event_timestamp)                                    AS event_ts,
+    event_name,
+
+    ${ga4.IDENTITY}                                                      AS identity_key,
+    user_pseudo_id,
+    CONCAT(user_pseudo_id, '.',
+           CAST(${ga4.param('ga_session_id','int')} AS STRING))          AS session_key,
+
+    ${ga4.SRC}                                                           AS src,
+    ${ga4.MDM}                                                           AS mdm,
+    ${ga4.CMP}                                                           AS cmp,
+    ${ga4.CHANNEL}                                                       AS channel_group,
+    (${ga4.SRC} IS NULL AND ${ga4.MDM} IS NULL)                          AS src_missing,
+
+    ${ga4.param('page_location')}                                        AS page_location,
+    ${ga4.param('page_title')}                                           AS page_title,
+    ${ga4.param('page_referrer')}                                        AS page_referrer,
+    ${ga4.param('percent_scrolled','int')}                               AS percent_scrolled,
+    ${ga4.param('session_engaged')}                                      AS session_engaged,
+    ${ga4.param('engagement_time_msec','int')}                           AS engagement_msec,
+
+    -- GA4 schreibt `value` je nach Datentyp in int/float/double.
+    -- Nur double abzufragen verliert alle ganzzahligen Betraege.
+    ${ga4.paramNum('value')}                                             AS event_value,
+    items,
+
+    device.category                                                      AS device_category,
+    device.operating_system                                              AS os,
+    geo.country                                                          AS country,
+
+    -- Bot-Heuristik: Rechenzentrums-Signatur (kein Land + Linux + Desktop)
+    ((geo.country IS NULL OR geo.country = '')
+      AND device.operating_system = 'Linux'
+      AND device.category = 'desktop')                                   AS is_suspected_bot,
+
+    platform,
+    stream_id,
+    is_intraday,
+
+    ROW_NUMBER() OVER (
+      PARTITION BY event_timestamp, user_pseudo_id, event_name,
+                   ${ga4.param('ga_session_id','int')}
+      ORDER BY is_intraday ASC)                                          AS rn
+  FROM src
+)
+WHERE rn = 1

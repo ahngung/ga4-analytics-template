@@ -1,0 +1,16 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a6_traffic_anomaly", tags:["quality","daily"] }
+
+js { const ga4 = require("includes/ga4.js"); }
+
+WITH d AS (
+  SELECT session_date, COUNT(*) sessions
+  FROM ${ref("fct_sessions")}
+  WHERE session_date >= DATE_SUB(${ga4.TODAY}, INTERVAL 60 DAY)
+    AND session_date <  ${ga4.TODAY}   -- laufenden Tag ausschliessen
+  GROUP BY 1
+),
+m AS (SELECT session_date, sessions,
+             PERCENTILE_CONT(sessions, 0.5) OVER () median FROM d)
+SELECT session_date, sessions, median
+FROM m WHERE sessions > median * 3

@@ -1,0 +1,32 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "core",
+  name: "fct_conversions",
+  tags: ["core", "daily"],
+  bigquery: { partitionBy: "conversion_date", clusterBy: ["conv_type"] }
+}
+
+js { const ga4 = require("includes/ga4.js"); }
+
+SELECT
+  e.event_id                                 AS conversion_id,
+
+  -- Identitaet der Session, nicht des einzelnen Events. Sonst kann eine
+  -- Conversion eine andere identity_key tragen als ihre eigene Session und
+  -- faellt in bridge_attribution aus dem Join.
+  COALESCE(s.identity_key, e.identity_key)   AS identity_key,
+
+  e.session_key,
+  e.event_ts                                 AS conversion_ts,
+  e.event_date                               AS conversion_date,
+  e.event_name                               AS conv_type,
+  CASE WHEN e.event_name IN (${ga4.CONV})  THEN 'macro'
+       WHEN e.event_name IN (${ga4.MICRO}) THEN 'micro' END AS conv_class,
+  IFNULL(e.event_value, 1.0)                 AS conv_value,
+  -- Macht sichtbar, wann conv_value nur der Default ist statt ein echter Wert.
+  e.event_value IS NULL                      AS conv_value_imputed
+FROM ${ref("events")} e
+LEFT JOIN ${ref("fct_sessions")} s
+  ON s.session_key = e.session_key
+WHERE e.event_name IN (${ga4.CONV}, ${ga4.MICRO})
+  AND e.session_key IS NOT NULL

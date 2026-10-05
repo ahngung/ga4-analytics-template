@@ -1,0 +1,40 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "funnel_conversion", tags: ["funnel","daily"],
+  bigquery: { partitionBy: "date", clusterBy: ["channel_group"] }
+}
+
+js { const fn = require("includes/funnel.js"); }
+
+WITH hits AS (
+  SELECT e.session_key, s.session_date, s.channel_group, s.device_category,
+    ${fn.STEPS.map((x,i) =>
+      `LOGICAL_OR(e.event_name='${x}') AS hit_${i+1}`).join(",\n    ")}
+  FROM ${ref("events")} e
+  JOIN ${ref("fct_sessions")} s USING (session_key)
+  GROUP BY 1,2,3,4
+),
+-- Kumulativ: Schritt N gilt nur als erreicht, wenn auch alle vorherigen
+-- Schritte in der Session vorkamen. Das alte MAX(CASE...) hat den hoechsten
+-- erreichten Schritt genommen und damit Sessions mitgezaehlt, die
+-- Zwischenschritte uebersprungen haben.
+seq AS (
+  SELECT session_date, channel_group, device_category,
+    ${fn.STEPS.map((x,i) =>
+      `(${fn.STEPS.slice(0,i+1).map((_,j) => `hit_${j+1}`).join(" AND ")}) AS reached_${i+1}`
+    ).join(",\n    ")}
+  FROM hits
+)
+SELECT
+  session_date AS date, channel_group, device_category,
+  COUNT(*) AS sessions,
+  ${fn.cols([
+    fn.STEPS.map((s,i) =>
+      `COUNTIF(reached_${i+1}) AS step${i+1}_${fn.safe(s)}`).join(",\n  "),
+    fn.STEPS.slice(1).map((s,i) =>
+      `ROUND(SAFE_DIVIDE(COUNTIF(reached_${i+2}), NULLIF(COUNTIF(reached_${i+1}),0)),3) AS rate_${i+1}_to_${i+2}`
+    ).join(",\n  ")
+  ])},
+  ROUND(SAFE_DIVIDE(COUNTIF(reached_${fn.STEPS.length}), COUNT(*)),4) AS funnel_cvr
+FROM seq GROUP BY 1,2,3

@@ -1,0 +1,7 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a5_conversions_complete", tags:["core","daily"] }
+
+SELECT c.conversion_id, c.conv_type, c.conversion_date
+FROM ${ref("fct_conversions")} c
+LEFT JOIN ${ref("fct_sessions")} s USING (session_key)
+WHERE s.session_key IS NULL

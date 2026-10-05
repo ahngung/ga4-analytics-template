@@ -1,0 +1,42 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "content_performance", tags: ["behaviour","daily"],
+  bigquery: { partitionBy: "date" }
+}
+
+WITH pv AS (
+  SELECT event_date AS date,
+    REGEXP_REPLACE(REGEXP_EXTRACT(page_location, r'^https?://[^/]+([^?#]*)'), r'/$','') AS page_path,
+    ANY_VALUE(page_title)          AS page_title,
+    COUNT(*)                       AS pageviews,
+    COUNT(DISTINCT session_key)    AS sessions,
+    COUNT(DISTINCT identity_key)   AS users
+  FROM ${ref("events")}
+  WHERE event_name='page_view' AND page_location IS NOT NULL
+  GROUP BY 1,2
+),
+entry AS (
+  SELECT session_date AS date,
+    REGEXP_REPLACE(REGEXP_EXTRACT(landing_page, r'^https?://[^/]+([^?#]*)'), r'/$','') AS page_path,
+    COUNT(*) AS entrances, COUNTIF(is_bounce) AS bounces
+  FROM ${ref("fct_sessions")} GROUP BY 1,2
+),
+conv AS (
+  SELECT s.session_date AS date,
+    REGEXP_REPLACE(REGEXP_EXTRACT(s.landing_page, r'^https?://[^/]+([^?#]*)'), r'/$','') AS page_path,
+    COUNT(DISTINCT IF(c.conv_class='macro', c.conversion_id, NULL)) AS macro_conversions
+  FROM ${ref("fct_sessions")} s
+  LEFT JOIN ${ref("fct_conversions")} c USING (session_key)
+  GROUP BY 1,2
+)
+SELECT pv.date, pv.page_path, pv.page_title,
+  pv.pageviews, pv.sessions, pv.users,
+  IFNULL(e.entrances,0) AS entrances,
+  IFNULL(e.bounces,0)   AS bounces,
+  ROUND(SAFE_DIVIDE(e.bounces, e.entrances),3)           AS bounce_rate,
+  IFNULL(c.macro_conversions,0)                          AS macro_conversions,
+  ROUND(SAFE_DIVIDE(c.macro_conversions, e.entrances),4) AS entrance_cvr
+FROM pv
+LEFT JOIN entry e USING (date, page_path)
+LEFT JOIN conv  c USING (date, page_path)

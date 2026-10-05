@@ -1,0 +1,37 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "customer_value",
+  tags: ["ecommerce", "weekly"],
+  disabled: String(dataform.projectConfig.vars.has_ecommerce).toLowerCase() !== "true"
+}
+
+js { const fx = require("includes/features.js"); const { ECOM_BUY } = fx; }
+
+WITH buyers AS (
+  SELECT
+    c.identity_key,
+    COUNT(*)                          AS orders,
+    SUM(c.conv_value)                 AS lifetime_value,
+    MIN(c.conversion_ts)              AS first_purchase_ts,
+    MAX(c.conversion_ts)              AS last_purchase_ts
+  FROM ${ref("fct_conversions")} c
+  WHERE c.conv_type = '${ECOM_BUY}'
+  GROUP BY 1
+)
+SELECT
+  u.first_channel,
+  u.first_device,
+  COUNT(*)                                                     AS buyers,
+  ROUND(SUM(b.lifetime_value),2)                               AS total_revenue,
+  ROUND(AVG(b.lifetime_value),2)                               AS avg_ltv,
+  ROUND(AVG(SAFE_DIVIDE(b.lifetime_value, b.orders)),2)        AS aov,
+  ROUND(AVG(b.orders),2)                                       AS avg_orders,
+  COUNTIF(b.orders > 1)                                        AS repeat_buyers,
+  ROUND(SAFE_DIVIDE(COUNTIF(b.orders > 1), COUNT(*)),4)        AS repeat_rate,
+  ROUND(AVG(TIMESTAMP_DIFF(b.first_purchase_ts, u.first_seen_ts, HOUR)/24.0),1) AS avg_days_to_first_purchase,
+  ROUND(AVG(IF(b.orders > 1,
+    TIMESTAMP_DIFF(b.last_purchase_ts, b.first_purchase_ts, HOUR)/24.0, NULL)),1) AS avg_days_between_purchases
+FROM buyers b
+JOIN ${ref("fct_user_milestones")} u USING (identity_key)
+GROUP BY 1,2

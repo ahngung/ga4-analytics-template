@@ -1,0 +1,33 @@
+{
+  "warehouse": "bigquery",
+  "defaultSchema": "ga4_core",
+  "assertionSchema": "ga4_qa",
+  "defaultDatabase": "project_id",
+  "defaultLocation": "US",
+  "vars": {
+    "ds_prefix":         "ga4_",
+    "ga4_dataset":       "analytics_000000000",
+
+    "business_model":    "b2b_lead",
+    "has_ecommerce":     "false",
+    "has_auth":          "false",
+    "has_search":        "true",
+    "has_video":         "false",
+
+    "conversion_events": "generate_lead,purchase,sign_up",
+    "micro_events":      "newsletter_sign_up,click_email,click_phone,click_cta,file_download",
+    "milestone_events":  "page_view,click_cta,generate_lead",
+    "funnel_steps":      "session_start>page_view>scroll>click_cta>form_start>generate_lead",
+
+    "ecom_funnel_steps":   "view_item_list,view_item,add_to_cart,begin_checkout,add_shipping_info,add_payment_info,purchase",
+    "ecom_item_events":    "view_item_list,view_item,add_to_cart,remove_from_cart,begin_checkout,purchase,refund",
+    "ecom_purchase_event": "purchase",
+
+    "lookback_days":     "90",
+    "halflife_days":     "7",
+    "reprocess_days":    "3",
+    "history_start":     "20240101",
+    "timezone":          "Europe/Berlin",
+    "use_user_id":       "true"
+  }
+}

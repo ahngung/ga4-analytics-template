@@ -1,0 +1,9 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a1_credits_sum_to_one", tags:["attribution","daily"] }
+
+SELECT conversion_id, SUM(credit_first) f, SUM(credit_last) l, SUM(credit_linear) li,
+       SUM(credit_position) p, SUM(credit_timedecay) td, SUM(credit_last_nondirect) lnd
+FROM ${ref("bridge_attribution")}
+GROUP BY 1
+HAVING ABS(f-1)>0.001 OR ABS(l-1)>0.001 OR ABS(li-1)>0.001
+    OR ABS(p-1)>0.001 OR ABS(td-1)>0.001 OR ABS(lnd-1)>0.001

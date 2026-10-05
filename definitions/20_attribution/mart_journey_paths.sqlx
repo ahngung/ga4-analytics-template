@@ -1,0 +1,18 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "journey_paths",
+  tags: ["attribution", "daily"],
+  bigquery: { partitionBy: "conversion_date" }
+}
+
+SELECT
+  conversion_id, conversion_date, conv_type, conv_class,
+  STRING_AGG(channel_group, ' > ' ORDER BY touch_pos)  AS path,
+  ANY_VALUE(touch_total)                               AS touchpoints,
+  MAX(days_before)                                     AS days_to_conversion,
+  ANY_VALUE(touch_total) = 1                           AS is_single_touch,
+  ARRAY_AGG(channel_group ORDER BY touch_pos      LIMIT 1)[OFFSET(0)] AS first_touch,
+  ARRAY_AGG(channel_group ORDER BY touch_pos DESC LIMIT 1)[OFFSET(0)] AS last_touch
+FROM ${ref("bridge_attribution")}
+GROUP BY 1,2,3,4

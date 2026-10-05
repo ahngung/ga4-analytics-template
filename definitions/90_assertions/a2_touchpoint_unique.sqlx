@@ -1,0 +1,5 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a2_touchpoint_unique", tags:["core","daily"] }
+
+SELECT touchpoint_id FROM ${ref("fct_touchpoints")}
+GROUP BY 1 HAVING COUNT(*) > 1

@@ -1,0 +1,80 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "core",
+  name: "fct_user_milestones",
+  tags: ["lifecycle", "daily"],
+  bigquery: { partitionBy: "first_seen_date", clusterBy: ["first_channel"] }
+}
+
+js {
+  const fx = require("includes/features.js");
+  const { MS, safe, cols } = fx;
+}
+
+WITH src AS (
+  SELECT s.identity_key, s.session_key, s.session_start, s.session_date,
+         s.pageviews, s.engagement_sec, s.device_category,
+         s.channel_group, s.landing_page,
+         t.source, t.medium
+  FROM ${ref("fct_sessions")} s
+  LEFT JOIN ${ref("fct_touchpoints")} t USING (session_key)
+),
+first_touch AS (
+  SELECT
+    identity_key,
+    MIN(session_start)  AS first_seen_ts,
+    MIN(session_date)   AS first_seen_date,
+    MAX(session_date)   AS last_seen_date,
+    COUNT(*)            AS total_sessions,
+    SUM(pageviews)      AS total_pageviews,
+    SUM(engagement_sec) AS total_engagement_sec,
+    ARRAY_AGG(STRUCT(channel_group, source, medium, landing_page, device_category)
+              ORDER BY session_start LIMIT 1)[OFFSET(0)] AS ft
+  FROM src
+  GROUP BY 1
+),
+ms AS (
+  SELECT
+    c.identity_key, c.conv_type,
+    MIN(c.conversion_ts) AS ms_ts,
+    ARRAY_AGG(s.channel_group ORDER BY c.conversion_ts LIMIT 1)[SAFE_OFFSET(0)] AS ms_channel
+  FROM ${ref("fct_conversions")} c
+  LEFT JOIN ${ref("fct_sessions")} s USING (session_key)
+  GROUP BY 1,2
+)
+
+SELECT
+  f.identity_key,
+  f.first_seen_ts, f.first_seen_date, f.last_seen_date,
+  f.total_sessions, f.total_pageviews, f.total_engagement_sec,
+  f.ft.channel_group   AS first_channel,
+  f.ft.source          AS first_source,
+  f.ft.medium          AS first_medium,
+  f.ft.landing_page    AS first_landing_page,
+  f.ft.device_category AS first_device,
+  DATE_DIFF(f.last_seen_date, f.first_seen_date, DAY) AS lifespan_days,
+
+  ${cols([
+    MS.map(e => `
+  MAX(IF(m.conv_type='${e}', m.ms_ts, NULL))                          AS ${safe(e)}_ts,
+  MAX(IF(m.conv_type='${e}', m.ms_channel, NULL))                     AS ${safe(e)}_channel,
+  MAX(IF(m.conv_type='${e}', m.ms_ts, NULL)) IS NOT NULL              AS reached_${safe(e)},
+  ROUND(TIMESTAMP_DIFF(MAX(IF(m.conv_type='${e}', m.ms_ts, NULL)),
+                       f.first_seen_ts, HOUR)/24.0, 2)                AS days_to_${safe(e)}`).join(","),
+
+    MS.slice(1).map((e,i) => `
+  ROUND(TIMESTAMP_DIFF(MAX(IF(m.conv_type='${e}', m.ms_ts, NULL)),
+                       MAX(IF(m.conv_type='${MS[i]}', m.ms_ts, NULL)), HOUR)/24.0, 2)
+    AS days_${safe(MS[i])}_to_${safe(e)}`).join(","),
+
+    MS.length
+      ? `CASE ${MS.map((e,i) =>
+          `WHEN MAX(IF(m.conv_type='${e}', m.ms_ts, NULL)) IS NOT NULL THEN ${i+1} `)
+          .reverse().join("")} ELSE 0 END                                   AS max_stage`
+      : `0 AS max_stage`
+  ])}
+
+FROM first_touch f
+LEFT JOIN ms m USING (identity_key)
+-- 13 nicht-aggregierte Spalten oberhalb des Milestone-Blocks.
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13

@@ -1,0 +1,45 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "ecommerce_funnel",
+  tags: ["ecommerce", "daily"],
+  disabled: String(dataform.projectConfig.vars.has_ecommerce).toLowerCase() !== "true",
+  bigquery: { partitionBy: "date", clusterBy: ["channel_group"] }
+}
+
+js {
+  const fx = require("includes/features.js");
+  const { ECOM_FUNNEL, ECOM_BUY, safe, sqlList, cols } = fx;
+}
+
+WITH stages AS (
+  SELECT
+    e.session_key, s.session_date, s.channel_group, s.device_category,
+    ${ECOM_FUNNEL.map(x =>
+      `LOGICAL_OR(e.event_name='${x}') AS st_${safe(x)}`).join(",\n    ")},
+    SUM(IF(e.event_name='${ECOM_BUY}', IFNULL(e.event_value,0), 0)) AS revenue
+  FROM ${ref("events")} e
+  JOIN ${ref("fct_sessions")} s USING (session_key)
+  WHERE e.event_name IN (${sqlList(ECOM_FUNNEL)})
+     OR e.event_name = '${ECOM_BUY}'
+  GROUP BY 1,2,3,4
+)
+SELECT
+  session_date AS date, channel_group, device_category,
+  COUNT(*) AS sessions,
+
+  ${cols([
+    ECOM_FUNNEL.map((x,i) =>
+      `COUNTIF(st_${safe(x)}) AS step${i+1}_${safe(x)}`).join(",\n  "),
+
+    ECOM_FUNNEL.slice(1).map((x,i) =>
+      `ROUND(SAFE_DIVIDE(COUNTIF(st_${safe(x)}), NULLIF(COUNTIF(st_${safe(ECOM_FUNNEL[i])}),0)),3) AS rate_${i+1}_to_${i+2}`
+    ).join(",\n  ")
+  ])},
+
+  ROUND(SAFE_DIVIDE(COUNTIF(st_${safe(ECOM_FUNNEL[ECOM_FUNNEL.length-1])}), COUNT(*)),4) AS session_cvr,
+  ROUND(SUM(revenue),2) AS revenue,
+  ROUND(SAFE_DIVIDE(SUM(revenue),
+        NULLIF(COUNTIF(st_${safe(ECOM_FUNNEL[ECOM_FUNNEL.length-1])}),0)),2) AS aov
+FROM stages
+GROUP BY 1,2,3

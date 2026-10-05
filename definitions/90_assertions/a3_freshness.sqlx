@@ -1,0 +1,9 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a3_freshness", tags:["core","daily"] }
+
+js { const ga4 = require("includes/ga4.js"); }
+
+SELECT d FROM UNNEST(GENERATE_DATE_ARRAY(
+        DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.reprocess_days} DAY),
+        DATE_SUB(${ga4.TODAY}, INTERVAL 1 DAY))) d
+WHERE d NOT IN (SELECT DISTINCT event_date FROM ${ref("events")})

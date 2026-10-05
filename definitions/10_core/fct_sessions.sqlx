@@ -1,0 +1,44 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "core",
+  name: "fct_sessions",
+  tags: ["core", "daily"],
+  bigquery: { partitionBy: "session_date", clusterBy: ["channel_group"] }
+}
+
+js { const ga4 = require("includes/ga4.js"); }
+
+SELECT
+  session_key,
+
+  -- Deterministische Session-Identitaet: loggt sich ein Nutzer mitten in der
+  -- Session ein, traegt dieselbe Session zwei identity_key-Werte. ANY_VALUE
+  -- greift davon willkuerlich einen — bei jedem Lauf potenziell einen anderen.
+  -- Wir bevorzugen stabil die eingeloggte Identitaet.
+  COALESCE(
+    MAX(IF(identity_key != user_pseudo_id, identity_key, NULL)),
+    ANY_VALUE(user_pseudo_id))                             AS identity_key,
+
+  MIN(event_date)                                          AS session_date,
+  MIN(event_ts)                                            AS session_start,
+  TIMESTAMP_DIFF(MAX(event_ts), MIN(event_ts), SECOND)     AS duration_sec,
+  SUM(IFNULL(engagement_msec,0))/1000                      AS engagement_sec,
+  COUNTIF(event_name='page_view')                          AS pageviews,
+  COUNT(DISTINCT page_location)                            AS unique_pages,
+  MAX(IFNULL(percent_scrolled,0))                          AS max_scroll,
+  MAX(IF(session_engaged='1',1,0)) = 1                     AS is_engaged,
+  COUNTIF(event_name='page_view') <= 1                     AS is_bounce,
+  LOGICAL_OR(is_suspected_bot)                             AS is_bot_session,
+  ARRAY_AGG(page_location IGNORE NULLS ORDER BY event_ts LIMIT 1)[SAFE_OFFSET(0)]      AS landing_page,
+  ARRAY_AGG(page_location IGNORE NULLS ORDER BY event_ts DESC LIMIT 1)[SAFE_OFFSET(0)] AS exit_page,
+  ARRAY_AGG(NULLIF(channel_group,'') IGNORE NULLS ORDER BY event_ts LIMIT 1)[SAFE_OFFSET(0)] AS channel_group,
+  ANY_VALUE(device_category)                               AS device_category,
+  ANY_VALUE(country)                                       AS country
+FROM ${ref("events")}
+WHERE session_key IS NOT NULL
+GROUP BY session_key
+HAVING NOT (
+  IFNULL(LOGICAL_OR(is_suspected_bot), FALSE)
+  AND COUNTIF(event_name='click') = 0
+  AND COUNTIF(event_name IN (${ga4.CONV}, ${ga4.MICRO})) = 0   -- Conversion schuetzt immer
+)

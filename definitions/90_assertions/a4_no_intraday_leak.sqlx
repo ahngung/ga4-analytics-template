@@ -1,0 +1,9 @@
+config { type:"assertion", schema: dataform.projectConfig.vars.ds_prefix+"qa",
+         name:"a4_no_intraday_leak", tags:["core","daily"] }
+
+js { const ga4 = require("includes/ga4.js"); }
+
+SELECT event_date, COUNT(DISTINCT is_intraday) modi
+FROM ${ref("events")}
+WHERE event_date < ${ga4.TODAY}
+GROUP BY 1 HAVING modi > 1

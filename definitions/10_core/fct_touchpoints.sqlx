@@ -1,0 +1,29 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "core",
+  name: "fct_touchpoints",
+  tags: ["core", "daily"],
+  bigquery: { partitionBy: "touch_date", clusterBy: ["channel_group"] }
+}
+
+SELECT
+  s.session_key                            AS touchpoint_id,
+  s.session_key,
+  s.identity_key,
+  s.session_start                          AS touch_ts,
+  s.session_date                           AS touch_date,
+  IFNULL(s.channel_group,'Direct')         AS channel_group,
+  t.source, t.medium, t.campaign, t.src_missing,
+  s.landing_page, s.device_category, s.country,
+  s.pageviews, s.engagement_sec, s.is_engaged
+FROM ${ref("fct_sessions")} s
+LEFT JOIN (
+  SELECT session_key,
+    ARRAY_AGG(src IGNORE NULLS ORDER BY event_ts LIMIT 1)[SAFE_OFFSET(0)] AS source,
+    ARRAY_AGG(mdm IGNORE NULLS ORDER BY event_ts LIMIT 1)[SAFE_OFFSET(0)] AS medium,
+    ARRAY_AGG(cmp IGNORE NULLS ORDER BY event_ts LIMIT 1)[SAFE_OFFSET(0)] AS campaign,
+    LOGICAL_AND(src_missing)                                              AS src_missing
+  FROM ${ref("events")}
+  WHERE session_key IS NOT NULL
+  GROUP BY session_key
+) t USING (session_key)

@@ -1,0 +1,32 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "retention_weekly",
+  tags: ["cohorts", "weekly"]
+}
+
+WITH first_seen AS (
+  SELECT identity_key,
+         DATE_TRUNC(MIN(session_date), WEEK(MONDAY)) AS cohort_week,
+         ARRAY_AGG(channel_group IGNORE NULLS ORDER BY session_start LIMIT 1)[SAFE_OFFSET(0)] AS acq_channel
+  FROM ${ref("fct_sessions")}
+  GROUP BY 1
+),
+act AS (
+  SELECT s.identity_key, f.cohort_week, f.acq_channel,
+         DATE_DIFF(DATE_TRUNC(s.session_date, WEEK(MONDAY)), f.cohort_week, WEEK) AS week_no
+  FROM ${ref("fct_sessions")} s
+  JOIN first_seen f USING (identity_key)
+),
+agg AS (
+  SELECT cohort_week, acq_channel, week_no,
+         COUNT(DISTINCT identity_key) AS users
+  FROM act
+  WHERE week_no BETWEEN 0 AND 12
+  GROUP BY 1,2,3
+)
+SELECT *,
+  MAX(IF(week_no = 0, users, NULL)) OVER (PARTITION BY cohort_week, acq_channel) AS cohort_size,
+  ROUND(SAFE_DIVIDE(users,
+    MAX(IF(week_no = 0, users, NULL)) OVER (PARTITION BY cohort_week, acq_channel)), 3) AS retention_rate
+FROM agg

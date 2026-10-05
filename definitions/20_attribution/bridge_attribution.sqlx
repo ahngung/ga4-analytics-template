@@ -1,0 +1,43 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "core",
+  name: "bridge_attribution",
+  tags: ["attribution", "daily"],
+  bigquery: { partitionBy: "conversion_date", clusterBy: ["channel_group","conv_type"] }
+}
+
+js { const ga4 = require("includes/ga4.js"); }
+
+WITH j AS (
+  SELECT
+    c.conversion_id, c.conversion_date, c.conv_type, c.conv_class, c.conv_value,
+    t.touchpoint_id, t.touch_ts, t.channel_group, t.source, t.medium, t.campaign,
+    t.landing_page, t.device_category,
+    ROW_NUMBER() OVER (PARTITION BY c.conversion_id ORDER BY t.touch_ts) AS touch_pos,
+    COUNT(*)    OVER (PARTITION BY c.conversion_id)                      AS touch_total,
+    TIMESTAMP_DIFF(c.conversion_ts, t.touch_ts, DAY)                     AS days_before
+  FROM ${ref("fct_conversions")} c
+  JOIN ${ref("fct_touchpoints")} t
+    ON  t.identity_key = c.identity_key
+    AND t.touch_ts    <= c.conversion_ts
+    AND t.touch_ts    >= TIMESTAMP_SUB(c.conversion_ts, INTERVAL ${ga4.v.lookback_days} DAY)
+),
+j2 AS (
+  SELECT *,
+    MAX(IF(channel_group != 'Direct', touch_pos, NULL))
+      OVER (PARTITION BY conversion_id) AS last_nd_pos
+  FROM j
+)
+SELECT *,
+  IF(touch_pos = 1, 1.0, 0.0)                                AS credit_first,
+  IF(touch_pos = touch_total, 1.0, 0.0)                      AS credit_last,
+  1.0 / touch_total                                          AS credit_linear,
+  CASE WHEN touch_total = 1 THEN 1.0
+       WHEN touch_total = 2 THEN 0.5
+       WHEN touch_pos IN (1, touch_total) THEN 0.4
+       ELSE 0.2 / (touch_total - 2) END                      AS credit_position,
+  SAFE_DIVIDE(POW(0.5, days_before / ${ga4.v.halflife_days}),
+    SUM(POW(0.5, days_before / ${ga4.v.halflife_days}))
+        OVER (PARTITION BY conversion_id))                   AS credit_timedecay,
+  IF(touch_pos = IFNULL(last_nd_pos, touch_total), 1.0, 0.0) AS credit_last_nondirect
+FROM j2

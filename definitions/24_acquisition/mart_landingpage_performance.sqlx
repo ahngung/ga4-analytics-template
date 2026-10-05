@@ -1,0 +1,51 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "landingpage_performance",
+  tags: ["acquisition", "daily"],
+  bigquery: { partitionBy: "date", clusterBy: ["channel_group"] }
+}
+
+-- Conversions vorab pro Session verdichten:
+-- verhindert Fan-out des LEFT JOIN (1 Session x N Conversions = N Zeilen).
+WITH conv AS (
+  SELECT
+    session_key,
+    COUNTIF(conv_class = 'macro')            AS macro_conv,
+    COUNTIF(conv_class = 'micro')            AS micro_conv,
+    LOGICAL_OR(conv_class = 'macro')         AS has_macro_conv
+  FROM ${ref("fct_conversions")}
+  GROUP BY session_key
+)
+
+SELECT
+  s.session_date AS date,
+  REGEXP_REPLACE(
+    REGEXP_EXTRACT(s.landing_page, r'^https?://[^/]+([^?#]*)'),
+    r'/$', '')                                           AS landing_path,
+  s.channel_group,
+  s.device_category,
+
+  -- Ab hier gilt: genau eine Zeile pro Session -> COUNT(*) und AVG() korrekt.
+  COUNT(*)                                               AS sessions,
+  COUNT(DISTINCT s.identity_key)                         AS users,
+  COUNTIF(s.is_engaged)                                  AS engaged_sessions,
+  COUNTIF(s.is_bounce)                                   AS bounces,
+  ROUND(SAFE_DIVIDE(COUNTIF(s.is_bounce), COUNT(*)), 3)  AS bounce_rate,
+  ROUND(AVG(s.engagement_sec), 1)                        AS avg_engagement_sec,
+  ROUND(AVG(s.max_scroll), 1)                            AS avg_max_scroll,
+
+  SUM(IFNULL(c.macro_conv, 0))                           AS macro_conversions,
+  SUM(IFNULL(c.micro_conv, 0))                           AS micro_conversions,
+  COUNTIF(IFNULL(c.has_macro_conv, FALSE))               AS converting_sessions,
+
+  -- Anteil Sessions mit mindestens einer Macro-Conversion (immer <= 1).
+  ROUND(SAFE_DIVIDE(COUNTIF(IFNULL(c.has_macro_conv, FALSE)),
+                    COUNT(*)), 4)                        AS cvr,
+  -- Conversions pro Session: kann > 1 sein bei Mehrfach-Conversions.
+  ROUND(SAFE_DIVIDE(SUM(IFNULL(c.macro_conv, 0)),
+                    COUNT(*)), 4)                        AS conv_per_session
+
+FROM ${ref("fct_sessions")} s
+LEFT JOIN conv c USING (session_key)
+GROUP BY 1, 2, 3, 4

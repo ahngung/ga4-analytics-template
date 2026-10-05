@@ -1,0 +1,31 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "lifecycle_summary",
+  tags: ["lifecycle", "daily"]
+}
+
+js {
+  const fx = require("includes/features.js");
+  const { MS, safe, cols } = fx;
+}
+
+SELECT
+  first_channel,
+  first_device,
+  ${cols([
+    `COUNT(*)                      AS users`,
+    `ROUND(AVG(total_sessions),2)  AS avg_sessions`,
+    `ROUND(AVG(lifespan_days),1)   AS avg_lifespan_days`,
+    `COUNTIF(max_stage = 0)        AS never_converted`,
+
+    MS.map(e => `
+  COUNTIF(reached_${safe(e)})                                    AS reached_${safe(e)},
+  ROUND(SAFE_DIVIDE(COUNTIF(reached_${safe(e)}), COUNT(*)),4)    AS rate_${safe(e)},
+  ROUND(AVG(days_to_${safe(e)}),1)                               AS avg_days_to_${safe(e)},
+  APPROX_QUANTILES(days_to_${safe(e)},100)[OFFSET(50)]           AS median_days_to_${safe(e)},
+  APPROX_QUANTILES(days_to_${safe(e)},100)[OFFSET(90)]           AS p90_days_to_${safe(e)}`).join(",")
+  ])}
+
+FROM ${ref("fct_user_milestones")}
+GROUP BY 1,2

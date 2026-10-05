@@ -1,0 +1,50 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "data_quality_header",
+  tags: ["quality", "daily"]
+}
+
+js { const ga4 = require("includes/ga4.js"); }
+
+WITH s AS (
+  SELECT COUNT(*) sessions, COUNT(DISTINCT identity_key) users,
+         COUNTIF(src_missing) ohne_quelle,
+         COUNTIF(channel_group='Direct') direct
+  FROM ${ref("fct_touchpoints")}
+  WHERE touch_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
+),
+b AS (
+  SELECT COUNT(DISTINCT session_key) roh_sessions,
+         COUNT(DISTINCT IF(is_suspected_bot, session_key, NULL)) bot_sessions
+  FROM ${ref("events")}
+  WHERE event_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
+    AND session_key IS NOT NULL
+),
+p AS (
+  SELECT AVG(touchpoints) avg_tp,
+         APPROX_QUANTILES(touchpoints,100)[OFFSET(50)] median_tp,
+         SAFE_DIVIDE(COUNTIF(is_single_touch), COUNT(*)) single_rate,
+         AVG(days_to_conversion) avg_days, COUNT(*) conversions
+  FROM ${ref("journey_paths")}
+  WHERE conversion_date >= DATE_SUB(${ga4.TODAY}, INTERVAL ${ga4.v.lookback_days} DAY)
+    AND conv_class = 'macro'
+)
+SELECT ${ga4.TODAY} AS stand,
+  s.sessions, s.users, p.conversions,
+  b.roh_sessions,
+  ROUND(SAFE_DIVIDE(b.bot_sessions, b.roh_sessions),3)  AS bot_anteil_roh,
+  ROUND(SAFE_DIVIDE(s.sessions, s.users),2)             AS sessions_pro_user,
+  ROUND(SAFE_DIVIDE(s.direct, s.sessions),3)            AS direct_anteil,
+  ROUND(SAFE_DIVIDE(s.ohne_quelle, s.sessions),3)       AS quelle_fehlt_anteil,
+  ROUND(p.avg_tp,2)                                     AS avg_touchpoints,
+  p.median_tp                                           AS median_touchpoints,
+  ROUND(p.single_rate,3)                                AS single_touch_anteil,
+  ROUND(p.avg_days,1)                                   AS avg_tage_bis_conversion,
+  CASE
+    WHEN p.conversions < 50   THEN 'ROT — zu wenig Conversions für belastbare Aussagen'
+    WHEN p.single_rate > 0.85 THEN 'ROT — fast nur Single-Touch, Modellvergleich ohne Aussage'
+    WHEN p.single_rate > 0.60 THEN 'GELB — Multi-Touch nur eingeschränkt belastbar'
+    ELSE 'GRUEN'
+  END                                                   AS attribution_eignung
+FROM s, b, p

@@ -1,0 +1,21 @@
+config {
+  type: "table",
+  schema: dataform.projectConfig.vars.ds_prefix + "mart",
+  name: "attribution_model_comparison",
+  tags: ["attribution", "daily"],
+  bigquery: { partitionBy: "conversion_date", clusterBy: ["channel_group"] }
+}
+
+SELECT
+  conversion_date, conv_class, channel_group,
+  COUNT(DISTINCT conversion_id)                  AS touched_conversions,
+  ROUND(SUM(credit_first),2)                     AS m_first,
+  ROUND(SUM(credit_last),2)                      AS m_last,
+  ROUND(SUM(credit_last_nondirect),2)            AS m_last_nondirect,
+  ROUND(SUM(credit_linear),2)                    AS m_linear,
+  ROUND(SUM(credit_position),2)                  AS m_position,
+  ROUND(SUM(credit_timedecay),2)                 AS m_timedecay,
+  ROUND(SUM(credit_linear) - SUM(credit_last),2) AS undervalued_by_lastclick,
+  ROUND(SUM(credit_linear * conv_value),2)       AS value_linear
+FROM ${ref("bridge_attribution")}
+GROUP BY 1,2,3
